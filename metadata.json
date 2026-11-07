@@ -1,0 +1,6 @@
+{
+  "name": "ARONE - Advanced Operations Executive",
+  "description": "Ultra-competent, highly intelligent, and refined executive AI assistant inspired by JARVIS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
