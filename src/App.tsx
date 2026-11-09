@@ -8,12 +8,22 @@ import {
   type ParsedAroneResponse,
 } from './utils/aroneCore';
 import { playAcousticCue, speakAroneVoice } from './utils/soundFx';
-import { Header, type NavTab } from './components/Header';
+import type { NavTab } from './components/Header';
 import { AcousticOrb } from './components/AcousticOrb';
 import { TelemetryMatrix } from './components/TelemetryMatrix';
 import { ProfilerLab } from './components/ProfilerLab';
 import { TaskQueue } from './components/TaskQueue';
 import { HolographicHUD } from './components/fui/HolographicHUD';
+import { WorkspaceHub } from './components/WorkspaceHub';
+import { ConfirmActionModal, type ConfirmationRequest } from './components/ConfirmActionModal';
+import { initAuth, googleSignIn, logout, type User } from './utils/firebaseAuth';
+import {
+  fetchCalendarEvents,
+  fetchRecentGmailMessages,
+  buildWorkspaceContextSummary,
+  type CalendarEventItem,
+  type GmailMessageItem,
+} from './utils/workspaceApi';
 import {
   Send,
   Terminal,
@@ -40,21 +50,22 @@ const INITIAL_MESSAGES: ChatMessage[] = [
   {
     id: 'm-0',
     sender: 'arone',
-    text: `Good day, sir. All core systems are nominal, telemetry invariants are verified, and neural latency is clocked at a crisp 11ms.
+    text: `Right here, sir! What are we working on today?
 
-I am operating under the **Technical Mastery** directive. Whether you require distributed architecture designs, low-level memory optimizations, or immediate code synthesis, I am completely at your disposal.
+Ready when you are, boss! Whether you want to brainstorm wild ideas, explore fresh designs, simplify your schedule, or prototype something innovative—I'm right here with you.
 
-What is our first order of business?`,
+What are you inspired to create today?`,
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     protocol: 'TECHNICAL',
   },
 ];
 
 const QUICK_DIRECTIVES = [
-  { label: 'Memory Leak Audit', prompt: 'Audit and resolve memory leaks in high-throughput node cluster event loops.' },
-  { label: 'Raft Quorum Spec', prompt: 'Design a resilient 3-node Raft consensus cluster with network partition recovery.' },
-  { label: 'Sub-15ms Event Loop', prompt: 'Provide concrete techniques to minimize Node.js event loop lag under 100k req/sec.' },
-  { label: 'Crypto Invariant Audit', prompt: 'Audit our TLS 1.3 cryptographic cipher configuration for enterprise compliance.' },
+  { label: 'Creative Brainstorm', prompt: 'Hey ARONE, give me 3 creative, high-impact ideas for our next big feature!' },
+  { label: 'Streamline Schedule', prompt: 'What are we working on today, boss? Check my schedule and simplify my day.' },
+  { label: 'Wild Prototype', prompt: 'ARONE, let’s innovate: prototype a fresh, effortless user flow for our app.' },
+  { label: 'Unread Comms', prompt: 'ARONE, check my inbox and give me a quick, effortless summary of unread emails.' },
+  { label: 'Status Check', prompt: 'Hey ARONE, how are our systems humming along today?' },
 ];
 
 export default function App() {
@@ -70,9 +81,56 @@ export default function App() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Google Workspace Integration State
+  const [user, setUser] = useState<User | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEventItem[]>([]);
+  const [gmailMessages, setGmailMessages] = useState<GmailMessageItem[]>([]);
+  const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
+  const [confirmationRequest, setConfirmationRequest] = useState<ConfirmationRequest | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const cancelSpeechRef = useRef<(() => void) | null>(null);
+
+  const loadWorkspaceData = async (token: string | null) => {
+    if (!token) return;
+    setIsWorkspaceLoading(true);
+    try {
+      const [evts, msgs] = await Promise.allSettled([
+        fetchCalendarEvents(token, 10),
+        fetchRecentGmailMessages(token, 10),
+      ]);
+
+      if (evts.status === 'fulfilled') {
+        setCalendarEvents(evts.value);
+      }
+      if (msgs.status === 'fulfilled') {
+        setGmailMessages(msgs.value);
+      }
+    } catch (err) {
+      console.warn('Workspace sync notice:', err);
+    } finally {
+      setIsWorkspaceLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      (currentUser, token) => {
+        setUser(currentUser);
+        setAccessToken(token);
+        loadWorkspaceData(token);
+      },
+      () => {
+        setUser(null);
+        setAccessToken(null);
+        setCalendarEvents([]);
+        setGmailMessages([]);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -133,6 +191,8 @@ export default function App() {
         parts: [{ text: m.text }],
       }));
 
+      const workspaceContext = buildWorkspaceContextSummary(calendarEvents, gmailMessages);
+
       const res = await fetch('/api/arone/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,6 +200,7 @@ export default function App() {
           message: prompt,
           protocol,
           history: historyPayload,
+          contextData: workspaceContext,
         }),
       });
 
@@ -176,7 +237,7 @@ export default function App() {
       const fallbackMsg: ChatMessage = {
         id: `arone-err-${Date.now()}`,
         sender: 'arone',
-        text: `My apologies, sir. An anomalous socket interruption occurred. However, local telemetry is steady and our subroutines remain primed. Ready to proceed whenever you give the command.`,
+        text: `Hit a quick connection hiccup, boss! But my local systems are running fine and ready to roll. What would you like to tackle next, sir?`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         protocol,
       };
@@ -245,21 +306,40 @@ export default function App() {
     }
   };
 
+  const handleWorkspaceSignIn = async () => {
+    try {
+      const res = await googleSignIn();
+      if (res) {
+        setUser(res.user);
+        setAccessToken(res.accessToken);
+        await loadWorkspaceData(res.accessToken);
+        playAcousticCue('affirmative');
+      }
+    } catch (err: any) {
+      if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
+        console.warn('Workspace sign-in notice:', err?.message || err);
+        playAcousticCue('warning');
+      }
+    }
+  };
+
+  const handleWorkspaceSignOut = async () => {
+    await logout();
+    setUser(null);
+    setAccessToken(null);
+    setCalendarEvents([]);
+    setGmailMessages([]);
+    playAcousticCue('standby');
+  };
+
   const currentProtocolCfg = PROTOCOL_CONFIGS[protocol];
 
   return (
     <div className="min-h-screen bg-[#02040e] text-slate-100 flex flex-col font-sans">
-      {/* 3-Zone Top Navigation */}
-      <Header
-        activeTab={activeTab}
-        onSelectTab={setActiveTab}
-        onQuickAction={() => {
-          setActiveTab('telemetry');
-          playAcousticCue('affirmative');
-        }}
-      />
+      {/* Explicit User Confirmation Dialog for mutating Google Workspace actions */}
+      <ConfirmActionModal request={confirmationRequest} />
 
-      {/* Main Viewport Container */}
+      {/* Main Viewport Container (Top navbar completely removed to fill full header space) */}
       <main className="flex-1 w-full flex flex-col">
         {/* VIEW 1: Ultra-Detailed Holographic FUI / HUD */}
         {activeTab === 'hud' && (
@@ -269,7 +349,52 @@ export default function App() {
               setActiveTab('console');
             }}
             onOpenConsole={() => setActiveTab('console')}
+            onOpenWorkspace={() => setActiveTab('workspace')}
+            onOpenTelemetry={() => setActiveTab('telemetry')}
+            onRunDiagnostics={() => {
+              setActiveTab('telemetry');
+              playAcousticCue('affirmative');
+            }}
+            workspaceStats={{
+              eventsCount: calendarEvents.length,
+              unreadEmails: gmailMessages.filter((e) => e.unread).length,
+              isConnected: !!user,
+            }}
           />
+        )}
+
+        {/* VIEW: Google Workspace & Communications Command Bridge */}
+        {activeTab === 'workspace' && (
+          <div className="max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-cyan-950 pb-3">
+              <span className="text-xs font-mono text-cyan-400">ARONE // WORKSPACE & COMMUNICATIONS BRIDGE</span>
+              <button
+                type="button"
+                onClick={() => setActiveTab('hud')}
+                className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-mono"
+              >
+                <span>Return to Holographic HUD</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <WorkspaceHub
+              user={user}
+              accessToken={accessToken}
+              onSignIn={handleWorkspaceSignIn}
+              onSignOut={handleWorkspaceSignOut}
+              events={calendarEvents}
+              emails={gmailMessages}
+              isLoading={isWorkspaceLoading}
+              onRefresh={() => loadWorkspaceData(accessToken)}
+              onRequestConfirm={(req) => setConfirmationRequest(req)}
+              onTriggerAroneBriefing={() => {
+                setActiveTab('console');
+                handleSendMessage(
+                  'ARONE, synthesize a full executive morning briefing from my current Google Calendar schedule and unread Gmail communications.'
+                );
+              }}
+            />
+          </div>
         )}
 
         {/* VIEW 2: System Telemetry Matrix */}
@@ -593,7 +718,7 @@ export default function App() {
                     type="text"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
-                    placeholder="Issue directive or query to ARONE (e.g. 'Optimize memory pool for Raft consensus')..."
+                    placeholder="Chat with ARONE (e.g. 'What are we working on today, boss?', 'Brainstorm 3 fresh concepts', 'Help me design an app')..."
                     className="flex-1 bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
                     aria-label="Command input"
                     disabled={isExecuting}

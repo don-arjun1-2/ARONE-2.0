@@ -30,12 +30,18 @@ test('computeTelemetry returns valid metrics and health boundaries', () => {
   assert.ok(['nominal', 'elevated', 'critical'].includes(telemetry.status));
 });
 
-test('buildAroneSystemPrompt includes JARVIS-style persona directives and active protocol', () => {
+test('buildAroneSystemPrompt includes conversational JARVIS-style partner directives', () => {
   const prompt = buildAroneSystemPrompt('TECHNICAL');
-  assert.ok(prompt.includes('ARONE (Advanced Responsive Operations & Network Executive)'));
-  assert.ok(prompt.includes('Direct & Action-Oriented'));
-  assert.ok(prompt.includes('Proactive Efficiency'));
-  assert.ok(prompt.includes('Technical Mastery'));
+  assert.ok(prompt.includes('ARONE'));
+  assert.ok(prompt.includes('Talk Like a Human Friend'));
+  assert.ok(prompt.includes('Dynamic Responses'));
+  assert.ok(prompt.includes('Short & Real'));
+  assert.ok(prompt.includes('Super Friendly & Casual'));
+  assert.ok(prompt.includes('Greeting & Addressing'));
+  assert.ok(prompt.includes('No Raw Markdown Noise'));
+  assert.ok(prompt.includes('Focus on Innovation & Creativity'));
+  assert.ok(prompt.includes('Make Life Simple & Effortless'));
+  assert.ok(prompt.includes('Proactive Brainstorming'));
 });
 
 test('parseAroneResponse accurately extracts code blocks and proactive recommendations', () => {

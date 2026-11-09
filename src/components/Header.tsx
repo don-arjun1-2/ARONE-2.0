@@ -1,18 +1,22 @@
 import React from 'react';
 import { Activity } from 'lucide-react';
 
-export type NavTab = 'hud' | 'console' | 'telemetry' | 'profiler' | 'queue';
+export type NavTab = 'hud' | 'console' | 'workspace' | 'telemetry' | 'profiler' | 'queue';
 
 interface HeaderProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
   onQuickAction: () => void;
+  isWorkspaceLinked?: boolean;
+  unreadCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
   onSelectTab,
   onQuickAction,
+  isWorkspaceLinked = false,
+  unreadCount = 0,
 }) => {
   return (
     <header className="flex items-center justify-between gap-8 px-6 py-4 border-b border-cyan-950/80 bg-[#040816]/90 backdrop-blur-md sticky top-0 z-50">
@@ -47,6 +51,23 @@ export const Header: React.FC<HeaderProps> = ({
           }`}
         >
           Executive Console
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelectTab('workspace')}
+          className={`flex items-center gap-1.5 hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 ${
+            activeTab === 'workspace' ? 'text-cyan-400 font-semibold' : ''
+          }`}
+        >
+          <span>Workspace & Comms</span>
+          {isWorkspaceLinked && (
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          )}
+          {unreadCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-cyan-950 border border-cyan-500/50 text-cyan-300">
+              {unreadCount}
+            </span>
+          )}
         </button>
         <button
           type="button"

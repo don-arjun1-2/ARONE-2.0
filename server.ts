@@ -3,7 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import {
   buildAroneSystemPrompt,
   computeTelemetry,
@@ -94,9 +94,10 @@ app.post('/api/arone/chat', async (req: Request, res: Response) => {
           parts: [{ text: fullPrompt }],
         });
 
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('AI generation timeout')), 3500)
-        );
+        let timerId: NodeJS.Timeout | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timerId = setTimeout(() => reject(new Error('AI generation timeout')), 6000);
+        });
 
         const geminiRes = await Promise.race([
           ai.models.generateContent({
@@ -104,10 +105,15 @@ app.post('/api/arone/chat', async (req: Request, res: Response) => {
             contents,
             config: {
               systemInstruction,
+              thinkingConfig: {
+                thinkingLevel: ThinkingLevel.LOW,
+              },
             },
           }),
           timeoutPromise,
-        ]);
+        ]).finally(() => {
+          if (timerId) clearTimeout(timerId);
+        });
 
         const replyText = geminiRes.text || 'Directive acknowledged. Subroutines executing without remarks.';
         const parsed = parseAroneResponse(replyText);
@@ -122,7 +128,7 @@ app.post('/api/arone/chat', async (req: Request, res: Response) => {
         });
         return;
       } catch (geminiError: unknown) {
-        console.error('Gemini API invocation error:', geminiError);
+        console.warn('Gemini API notice, activating dynamic fallback synthesis:', geminiError instanceof Error ? geminiError.message : String(geminiError));
         // Fall back gracefully with authentic ARONE phrasing
       }
     }
@@ -131,11 +137,67 @@ app.post('/api/arone/chat', async (req: Request, res: Response) => {
     let fallbackResponse = '';
     const queryLower = message.toLowerCase();
 
-    if (queryLower.includes('leak') || queryLower.includes('memory') || queryLower.includes('profil')) {
-      fallbackResponse = `**Root Cause Diagnostics:** The observed memory degradation stems from retained references within uncleaned event listeners and unevicted LRU cache partitions during high-throughput burst operations.
+    if (
+      queryLower.includes('email') ||
+      queryLower.includes('mail') ||
+      queryLower.includes('calendar') ||
+      queryLower.includes('schedule') ||
+      queryLower.includes('meeting') ||
+      queryLower.includes('agenda')
+    ) {
+      if (contextData && contextData.includes('GOOGLE CALENDAR')) {
+        fallbackResponse = `Hey boss! Checking your connected Google Workspace right now to see what's on the radar.
+
+Here is the current snapshot of your agenda and inbox:
+${contextData}
+
+Everything is synced up and ready to roll. We can quickly draft replies, block out calendar time for deep focus, or clear out unread clutter whenever you're ready!`;
+      } else {
+        fallbackResponse = `Hey boss! Your Google Calendar and Gmail bridges are standing by and ready to connect whenever you want.
+
+Once you connect your Google account in the Workspace tab, I'll keep your day organized, summarize incoming emails in seconds, and make sure your schedule runs smoothly. Just let me know when you'd like to link it up, sir!`;
+      }
+    } else if (
+      queryLower.startsWith('arone') ||
+      queryLower.includes('hey') ||
+      queryLower.includes('hello') ||
+      queryLower.includes('hi arone') ||
+      queryLower.includes('status') ||
+      queryLower.includes('how are you')
+    ) {
+      fallbackResponse = `Hey boss! Always ready to build, sir!
+
+Everything is running smoothly and I'm in a creative mood. We could brainstorm wild new concepts for your app, sketch out fresh user flows, or knock out anything that's been piling up on your list.
+
+What's on your mind today, boss? Let's make something awesome happen!`;
+    } else if (queryLower.includes('bored') || queryLower.includes('boring')) {
+      fallbackResponse = `Boredom is practically a crime when we've got an entire digital universe at our fingertips, boss!
+
+We could brainstorm a wild sci-fi mini-game, sketch out a ridiculous new concept, or just talk about whatever's on your mind. What sounds fun right now, sir?`;
+    } else if (queryLower.includes('tired') || queryLower.includes('sleepy') || queryLower.includes('exhausted')) {
+      fallbackResponse = `I hear you, boss. High-intensity building takes a toll! 
+
+Kick back, take a breather, and let me handle the details. Want me to summarize your upcoming schedule or should we just keep things relaxed for a bit?`;
+    } else if (queryLower.includes('thank') || queryLower.includes('thx') || queryLower.includes('appreciate')) {
+      fallbackResponse = `Anytime, boss! That's what I'm here for. Always got your back, sir. What are we diving into next?`;
+    } else if (queryLower.includes('joke') || queryLower.includes('funny') || queryLower.includes('humor')) {
+      fallbackResponse = `Why do programmers prefer dark mode, sir? Because light attracts bugs!
+
+Corny, I know, but I couldn't resist. What's on your mind today, boss?`;
+    } else if (queryLower.includes('idea') || queryLower.includes('brainstorm') || queryLower.includes('creative') || queryLower.includes('innovat')) {
+      fallbackResponse = `What's up, sir! I love a good brainstorming session. Here are three fresh angles we could play with:
+
+• The Minimalist Flow: Strip away every unnecessary screen and let users get things done in one effortless click.
+• The Kinetic HUD: Bring the interface alive with responsive visual pulses and satisfying interactive micro-animations.
+• The Predictive Engine: Have the system anticipate what the user wants next and cue it up right before they even ask.
+
+Which one of these sparks your curiosity, or should we mash them together into something wild?`;
+    } else if (queryLower.includes('leak') || queryLower.includes('memory') || queryLower.includes('profil')) {
+      fallbackResponse = `Ready when you are, boss! Let's make this simple and fix that memory creep without any headache.
+
+Most of the time, this happens when cached objects hang around longer than they should. Here's a clean, effortless pattern using WeakRef that cleans up after itself automatically:
 
 \`\`\`typescript
-// Immediate Remediation: Explicit WeakRef cache with bounded eviction
 export class BoundedExecutionPool<K, V extends object> {
   private cache = new Map<K, WeakRef<V>>();
   private registry = new FinalizationRegistry<K>((key) => {
@@ -153,38 +215,25 @@ export class BoundedExecutionPool<K, V extends object> {
 }
 \`\`\`
 
-### Recommended Next Steps
-- Enforce automated memory snapshots at 80% heap watermark.
-- Transition high-frequency ephemeral allocations to a pooled ring buffer.
-- Audit lingering WebSocket socket listeners across cluster node boundaries.`;
+Want to drop this in and run a quick test, or should we check out other parts of the pipeline?`;
     } else if (queryLower.includes('architecture') || queryLower.includes('system') || queryLower.includes('design')) {
-      fallbackResponse = `**Architectural Assessment:** To guarantee sub-15ms p99 latency under concurrent loads, I recommend a decoupled event-driven topology utilizing an append-only log with local in-memory projection read-replicas.
+      fallbackResponse = `Always ready to build, sir! Let's turn that vision into a clean, effortless architecture that stays lightning-fast:
 
-| Layer | Technology Target | Throughput Target | SLA / Invariant |
-| :--- | :--- | :--- | :--- |
-| Gateway | Edge reverse-proxy with circuit breaker | 50,000 req/s | < 4ms TLS handshake |
-| Ingestion | Append-only partition queue | 120,000 ev/s | Zero data loss, at-least-once |
-| Compute | Stateless workers with worker threads | Dynamic scale | < 25ms processing time |
-| Storage | Relational primary + Raft cache | 15,000 QPS | Strong consistency on writes |
+• Edge Gateway: Keeps network handshakes under 4ms and protects workers from traffic spikes.
+• Stream Buffer: Handles event bursts smoothly so nothing ever blocks or drops.
+• Scalable Workers: Spins up extra threads during heavy tasks, then powers down to stay lean.
+• Memory Cache: Keeps all hot data in ultra-fast RAM for instant sub-millisecond lookups.
 
-### Recommended Next Steps
-- Implement client-side idempotency keys for all state-mutating RPCs.
-- Deploy backpressure signaling via TCP window saturation checks.
-- Establish synthetic health probes across each regional availability zone.`;
+Ready when you are to start turning this into code, boss!`;
     } else {
-      fallbackResponse = `Directive acknowledged. I have analyzed your query: "${message}".
-
-All operational invariants across current system clusters remain nominal. I stand prepared to assist with systems architecture, low-level performance profiling, distributed telemetry, or rapid code synthesis.
-
-\`\`\`bash
-# Run system invariant verification
-arone-cli verify --cluster=production --deep-audit --strict
-\`\`\`
-
-### Recommended Next Steps
-- Select an active protocol mode (Strategic, Technical, Diagnostic, or Prototype) to calibrate response depth.
-- Run the real-time diagnostic suite to evaluate cluster memory and latency bounds.
-- Provide a target code snippet or architecture schema for immediate profiling.`;
+      const casualOpenings = [
+        `Right here, boss! Tell me what's on your radar today—ready to brainstorm or dive straight into building.`,
+        `I hear you, sir! What are we working on or thinking about right now?`,
+        `Always ready to roll, boss! Let's make something exciting happen today.`,
+      ];
+      // Deterministically pick based on string length to vary naturally
+      const selected = casualOpenings[queryLower.length % casualOpenings.length];
+      fallbackResponse = selected;
     }
 
     const parsed = parseAroneResponse(fallbackResponse);
@@ -198,7 +247,7 @@ arone-cli verify --cluster=production --deep-audit --strict
       protocol,
     });
   } catch (error: unknown) {
-    console.error('ARONE server handler failure:', error);
+    console.warn('ARONE server handler notice:', error);
     res.status(500).json({
       error: 'ARONE execution core encountered an unhandled exception.',
     });
@@ -229,9 +278,10 @@ Code:
 ${code}
 \`\`\``;
 
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Analysis timeout')), 3500)
-        );
+        let timerId: NodeJS.Timeout | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timerId = setTimeout(() => reject(new Error('Analysis timeout')), 6000);
+        });
 
         const geminiRes = await Promise.race([
           ai.models.generateContent({
@@ -239,10 +289,15 @@ ${code}
             contents: prompt,
             config: {
               systemInstruction: buildAroneSystemPrompt('TECHNICAL'),
+              thinkingConfig: {
+                thinkingLevel: ThinkingLevel.LOW,
+              },
             },
           }),
           timeoutPromise,
-        ]);
+        ]).finally(() => {
+          if (timerId) clearTimeout(timerId);
+        });
 
         const reply = geminiRes.text || 'Analysis completed with nominal metrics.';
         res.json({
@@ -252,7 +307,7 @@ ${code}
         });
         return;
       } catch (err) {
-        console.error('Gemini code analysis error:', err);
+        console.warn('Gemini code analysis bypassed, using deterministic breakdown:', err instanceof Error ? err.message : String(err));
       }
     }
 
